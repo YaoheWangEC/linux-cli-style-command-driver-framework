@@ -5,12 +5,14 @@
 #include <string.h>
 #include <stdio.h>
 
+#define USB_CDC_IN_MAXPKT 64
+
 /**
   * @brief  通过通信接口发送响应字符串 (支持超长分帧)
   * @param  msg 要发送的字符串 (以 \0 结尾)
   *
-  * 将响应按 COMMAND_IO_TX_BUF_SIZE 切分为多帧依次发送,
-  * 每帧等待前一帧完成后再启动下一帧, 全部帧发送完毕后返回。
+ * 将响应按 USB_CDC_IN_MAXPKT 切分为多帧依次发送,
+ * 每帧等待前一帧完成后再启动下一帧, 全部帧发送完毕后返回。
   */
 static void command_send_response(const char *msg)
 {
@@ -22,8 +24,8 @@ static void command_send_response(const char *msg)
         while (command_io_is_tx_busy());
 
         uint32_t chunk = total_len - sent;
-        if (chunk > COMMAND_IO_TX_BUF_SIZE)
-            chunk = COMMAND_IO_TX_BUF_SIZE;
+        if (chunk > USB_CDC_IN_MAXPKT)
+            chunk = USB_CDC_IN_MAXPKT;
 
         command_io_put_buf(msg + sent, chunk);
         command_io_transmit_start();
@@ -43,6 +45,8 @@ void command_parser_init(void)
     command_table_init();
     register_command("lscmd", lscmd_handler);
     register_command("echo", echo_handler);
+    register_command("adc", adc_handler);
+    register_command("dac", dac_handler);
 }
 
 /**
