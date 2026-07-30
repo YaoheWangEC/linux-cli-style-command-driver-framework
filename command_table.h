@@ -7,11 +7,11 @@
 // 命令表最大长度
 #define COMMAND_TABLE_MAX 16
 
-// 命令结构体
+/** 命令结构体 */
 typedef struct 
 {
-    const char *name;                        // 命令名
-    char *(*handler)(int argc, char **argv); // 命令处理函数，返回字符串
+    const char *name;                           /**< 命令名 */
+    char *(*handler)(int argc, char **argv);    /**< 命令处理函数，返回字符串 */
 } command_t;
 
 /**
@@ -27,7 +27,6 @@ void command_table_init(void);
  *
  * @param name   命令名称字符串（如 "relay"）
  * @param handler 命令处理函数指针，函数签名为 const char* func(int argc, char** argv)
- * @param help   命令帮助信息字符串
  * @return 成功返回命令在表中的下标，失败返回 -1
  *
  * 用于在初始化阶段批量注册命令。

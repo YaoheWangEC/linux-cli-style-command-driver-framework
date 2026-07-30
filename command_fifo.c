@@ -1,82 +1,84 @@
 #include "command_fifo.h"
 #include <string.h>
 
+/** @brief 命令 FIFO 全局单例 */
+static command_fifo_t cmd_fifo;
+
 /**
- * @brief 初始化命令 FIFO
+ * @brief  初始化命令 FIFO
  *
- * 将读写指针和计数器清零，准备存储命令。
- *
- * @param fifo 指向 FIFO 对象
+ * 将读写指针和计数器清零, 准备存储命令。
  */
-void command_fifo_init(command_fifo_t *fifo) 
+void command_fifo_init(void)
 {
-    fifo->head = 0;
-    fifo->tail = 0;
-    fifo->count = 0;
+    cmd_fifo.head  = 0;
+    cmd_fifo.tail  = 0;
+    cmd_fifo.count = 0;
 }
 
 /**
- * @brief 将命令压入 FIFO
+ * @brief  将命令压入 FIFO
+ * @param  source  命令来源实例指针
+ * @param  cmd     命令字符串
+ * @param  len     命令长度 (含 \0)
+ * @retval true    压入成功
+ * @retval false   FIFO 已满或命令超长
  *
- * @param fifo 指向 FIFO 对象
- * @param cmd  命令字符串
- * @param len  命令长度
- * @return true 表示成功压入，false 表示 FIFO 满或命令超长
- *
- * 注意：命令长度必须小于 CMD_MAX_LENGTH。
+ * @note   注意若与pop不在同一优先级会在count计数时存在竞争
  */
-bool command_fifo_push(command_fifo_t *fifo, const char *cmd, uint16_t len) 
+bool command_fifo_push(command_io_t *source, const char *cmd, uint16_t len)
 {
-    if (command_fifo_is_full(fifo) || len > CMD_MAX_LENGTH) 
-    {
-        return false;
-    }
-    memcpy(fifo->buffer[fifo->tail], cmd, len);
-    fifo->length[fifo->tail] = len;
-    fifo->tail = (fifo->tail + 1) % CMD_FIFO_SIZE;
-    fifo->count++;
+    if (cmd_fifo.count >= CMD_FIFO_SIZE) return false;
+    if (len > CMD_MAX_LENGTH)          return false;
+
+    memcpy(cmd_fifo.buffer[cmd_fifo.tail], cmd, len);
+    cmd_fifo.length[cmd_fifo.tail] = len;
+    cmd_fifo.source[cmd_fifo.tail] = source;
+
+    cmd_fifo.tail = (cmd_fifo.tail + 1) % CMD_FIFO_SIZE;
+    cmd_fifo.count++;
     return true;
 }
 
 /**
- * @brief 从 FIFO 中弹出一条命令
+ * @brief  从 FIFO 中弹出一条命令
+ * @param  source  输出: 命令来源实例指针
+ * @param  buf     输出缓冲区 (存放命令字符串)
+ * @param  len     输出: 命令长度 (含 \0)
+ * @retval true    弹出成功
+ * @retval false   FIFO 为空
  *
- * @param fifo 指向 FIFO 对象
- * @param buf  用于存放命令字符串的缓冲区
- * @param len  返回命令长度
- * @return true 表示成功弹出，false 表示 FIFO 为空
+ * @note   注意若与push不在同一优先级会在count计数时存在竞争
  */
-bool command_fifo_pop(command_fifo_t *fifo, char *buf, uint16_t *len) 
+bool command_fifo_pop(command_io_t **source, char *buf, uint16_t *len)
 {
-    if (command_fifo_is_empty(fifo)) 
-    {
-        return false;
-    }
-    *len = fifo->length[fifo->head];
-    memcpy(buf, fifo->buffer[fifo->head], *len);
-    fifo->head = (fifo->head + 1) % CMD_FIFO_SIZE;
-    fifo->count--;
+    if (cmd_fifo.count == 0) return false;
+
+    memcpy(buf, cmd_fifo.buffer[cmd_fifo.head], cmd_fifo.length[cmd_fifo.head]);
+    *len    = cmd_fifo.length[cmd_fifo.head];
+    *source = cmd_fifo.source[cmd_fifo.head];
+
+    cmd_fifo.head = (cmd_fifo.head + 1) % CMD_FIFO_SIZE;
+    cmd_fifo.count--;
     return true;
 }
 
 /**
- * @brief 判断 FIFO 是否为空
- *
- * @param fifo 指向 FIFO 对象
- * @return true 表示为空，false 表示非空
+ * @brief  判断 FIFO 是否为空
+ * @retval true  空
+ * @retval false 非空
  */
-bool command_fifo_is_empty(command_fifo_t *fifo) 
+bool command_fifo_is_empty(void)
 {
-    return fifo->count == 0;
+    return cmd_fifo.count == 0;
 }
 
 /**
- * @brief 判断 FIFO 是否已满
- *
- * @param fifo 指向 FIFO 对象
- * @return true 表示已满，false 表示未满
+ * @brief  判断 FIFO 是否已满
+ * @retval true  满
+ * @retval false 未满
  */
-bool command_fifo_is_full(command_fifo_t *fifo) 
+bool command_fifo_is_full(void)
 {
-    return fifo->count >= CMD_FIFO_SIZE;
+    return cmd_fifo.count >= CMD_FIFO_SIZE;
 }

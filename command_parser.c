@@ -1,70 +1,99 @@
 #include "command_parser.h"
-#include "command_io.h"
+#include "command_fifo.h"
 #include "command_table.h"
 #include "command_handler.h"
+#include "command_io.h"
+#include <stdint.h>
 #include <string.h>
-#include <stdio.h>
 
-#define USB_CDC_IN_MAXPKT 64
-
-/**
-  * @brief  通过通信接口发送响应字符串 (支持超长分帧)
-  * @param  msg 要发送的字符串 (以 \0 结尾)
-  *
- * 将响应按 USB_CDC_IN_MAXPKT 切分为多帧依次发送,
- * 每帧等待前一帧完成后再启动下一帧, 全部帧发送完毕后返回。
-  */
-static void command_send_response(const char *msg)
+/** @brief 解析器状态 */
+typedef enum
 {
-    uint32_t total_len = strlen(msg);
-    uint32_t sent = 0;
+    STATE_WAIT_CMD,     /**< 等待下一条命令 */
+    STATE_SENDING,      /**< 正在发送响应 */
+} parser_state_t;
 
-    while (sent < total_len)
-    {
-        while (command_io_is_tx_busy());
-
-        uint32_t chunk = total_len - sent;
-        if (chunk > USB_CDC_IN_MAXPKT)
-            chunk = USB_CDC_IN_MAXPKT;
-
-        command_io_put_buf(msg + sent, chunk);
-        command_io_transmit_start();
-        sent += chunk;
-    }
-
-    while (command_io_is_tx_busy());
-}
+static parser_state_t  state         = STATE_WAIT_CMD;
+static command_io_t   *active_source = NULL;
 
 /**
- * @brief 初始化命令解析器
+ * @brief  初始化命令解析器
  *
  * 注册所有支持的命令。
  */
 void command_parser_init(void)
 {
+    state         = STATE_WAIT_CMD;
+    active_source = NULL;
+
     command_table_init();
-    register_command("lscmd", lscmd_handler);
-    register_command("echo", echo_handler);
-    register_command("adc", adc_handler);
-    register_command("dac", dac_handler);
+    register_command("lscmd",  lscmd_handler);
+    register_command("echo",   echo_handler);
+    register_command("device", device_handler);
 }
 
 /**
- * @brief 命令解析任务
+ * @brief  命令解析任务 (主循环每次迭代调用)
  *
- * 从命令 FIFO 中取出一条命令，调用命令表执行，并将结果通过通信接口返回。
+ * 状态机:
+ *   WAIT_CMD  → pop FIFO, 执行命令, tx_start, 进入 SENDING
+ *   SENDING   → 检查分片发送进度, 续发或回到 WAIT_CMD
+ *
+ * @note   阻塞仅发生在 tx_busy() 返回 true 时等待下一轮主循环,
+ *         不忙等硬件。
  */
 void command_parser_task(void)
 {
-    char buf[128];
-    uint16_t len;
-
-    if (command_io_pop(buf, &len))
+    if (state == STATE_SENDING)
     {
-        char *output = NULL;
-        execute_command(buf, &output);
-        command_send_response(output);
+        // 单块发送忙
+        if (active_source->tx_busy() == true) 
+        {
+            return;
+        }
+        else
+        {
+            // 单块发送结束但未完成本轮发送
+            if (active_source->tx_idle() == false)
+            {
+                if (active_source->tx_continue() == false)
+                {
+                    state         = STATE_WAIT_CMD;
+                    active_source = NULL;
+                }
+                return;
+            }
+            else// 本轮发送结束
+            {
+                state         = STATE_WAIT_CMD;
+                active_source = NULL;
+                return;
+            }
+        }
+    }
+    else if (state == STATE_WAIT_CMD)
+    {
+        command_io_t *source;
+        static char cmd[CMD_MAX_LENGTH];
+        uint16_t len;
+    
+        // 尝试获取命令
+        if (!command_fifo_pop(&source, cmd, &len))
+        {
+            return;
+        }
+            
+        // 执行命令
+        char *resp = NULL;
+        execute_command(cmd, &resp);
+        if (resp == NULL) return;
+    
+        // 开始返回响应字符串
+        active_source = source;
+        if (source->tx_start((const uint8_t *)resp, strlen(resp)) == true)
+        {
+            state = STATE_SENDING;
+        }
+        return;
     }
 }
-
-
