@@ -7,7 +7,8 @@
 #define CMD_FIFO_SIZE 4       // FIFO 容量
 #define CMD_MAX_LENGTH 64     // 单条命令最大长度
 
-typedef struct {
+typedef struct 
+{
     char buffer[CMD_FIFO_SIZE][CMD_MAX_LENGTH]; // 命令存储区
     uint16_t length[CMD_FIFO_SIZE];             // 每条命令长度
     uint8_t head;                               // 读指针

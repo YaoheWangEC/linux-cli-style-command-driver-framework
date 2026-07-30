@@ -1,18 +1,28 @@
 # 类Linux CLI命令解析框架
 
 ## 概述
-这是一个通用的嵌入式命令解析框架，默认支持在 **AT32** 平台上通过 **USB CDC** 接口接收命令并解析执行。框架采用 **Linux CLI 风格**，支持命令注册、帮助信息、参数解析和统一反馈。
+这是一个通用的嵌入式命令解析框架，支持在 **AT32** 平台上通过以下通信接口接收命令并解析执行：
 
-未来可以扩展为支持 **UART 串口** 或其他通信方式，只需替换数据接收与发送部分。
+- **RS485 (USART + DMA)**：[`USART 版本 IO 驱动`](command_io_usart.c)
+- **USB CDC (虚拟串口)**：[`USB CDC 版本 IO 驱动`](command_io_usb_cdc.c)
+
+两者均实现统一的接口，编译时按需选用其一。框架采用 **Linux CLI 风格**，支持命令注册、帮助信息、参数解析和统一反馈。
 
 ## 模块结构
 
-### 1. command_reader
-- **职责**：从 USB CDC 接口接收数据，拼接命令，检测 `\r\n` 结束符。
+### 1. command_io
+- **职责**：从通信接口接收数据，拼接命令，检测 `\r\n` 结束符，并发送响应。
+- **实现文件**：
+  - [`command_io_usart.c`](command_io_usart.c) — RS485 (USART + DMA) 版，中断驱动
+  - [`command_io_usb_cdc.c`](command_io_usb_cdc.c) — USB CDC 版，主循环轮询
 - **接口**：
-  - `command_reader_init()`：初始化 FIFO。
-  - `command_reader_task()`：接收数据并压入 FIFO。
-  - `command_reader_pop()`：从 FIFO 取出完整命令。
+  - `command_io_init()`：初始化通信接口。
+  - `command_io_pop()`：从命令 FIFO 取出完整命令。
+  - `command_io_put_char()` / `command_io_put_string()` / `command_io_put_buf()`：向发送缓冲区压入数据。
+  - `command_io_transmit_start()`：启动发送（非阻塞）。
+  - `command_io_is_tx_busy()`：查询发送是否完成。
+  - `command_io_flush()`：清空收发缓冲区。
+  - `command_io_rx_handler()` / `command_io_tx_handler()`：接收 / 发送中断处理。
 
 ### 2. command_fifo
 - **职责**：环形缓冲区，存储命令字符串。
@@ -42,13 +52,13 @@
 - **职责**：调度命令执行与反馈。
 - **接口**：
   - `command_parser_init()`：注册命令。
-  - `command_parser_task()`：取命令并执行，通过 USB 分段反馈结果。
+  - `command_parser_task()`：取命令并执行，通过通信接口反馈结果。
 
 ## 使用方法
 
 1. **初始化阶段**：
    ```c
-   command_reader_init();
+   command_io_init();
    command_parser_init();
    ```
 
@@ -56,8 +66,8 @@
    ```c
    while (1) 
    {
-       command_reader_task();   // 接收命令
-       command_parser_task();   // 解析并执行
+       command_io_rx_handler();   // 接收数据（仅在使用USB CDC实现通信时需要此函数调用）
+       command_parser_task();     // 取命令并执行
    }
    ```
 

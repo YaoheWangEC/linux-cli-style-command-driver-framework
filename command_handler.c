@@ -1,6 +1,7 @@
 #include "command_handler.h"
 #include "command_table.h"
 #include "bsp.h"
+#include "global_vars.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
