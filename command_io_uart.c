@@ -39,7 +39,6 @@
  */
 
 #include "command_io.h"
-#include "command_fifo.h"
 
 #include "at32f421_wk_config.h"
 #include "at32f421_gpio.h"
@@ -73,7 +72,7 @@ static uint8_t rx_dma_buf[DMA_RX_BUF_SIZE];     /**< DMA RX 硬件缓冲区 */
  */
 static bool uart_set_txrx_mode(bool tx, bool rx)
 {
-    if ((tx == true) && rx == true)
+    if ((tx == true) && (rx == true))
     {
         return false;
     }
