@@ -241,12 +241,6 @@ static bool uart_tx_busy(void)
 }
 
 /**
- * @brief  
- * @retval 始终返回 false
- */
-
-
-/**
  * @brief 续发下一分片 (UART 一次全发, 无需续发)
  * 
  * @return true 错误状态，正常运行过程中不可能返回true
