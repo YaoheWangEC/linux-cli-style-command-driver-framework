@@ -87,11 +87,43 @@ static bool usb_tx_start(const uint8_t *buf, uint32_t len)
 
 static void usb_tx_handler(void)
 {
+    /* XFRC 完成 (ISR 上下文): 上一片已被主机收走。
+     *
+     * 自驱动: 若仍有剩余内容, 直接在此续发下一片 —— ep_cdc_tx_busy
+     * 已由外层 (usbd_cdc_acm_bulk_in_callback) 清 false, 本调用必成功,
+     * 不存在主循环轮询撞 busy 的窗口。
+     * 主循环不再参与逐片推进, usb_tx_continue 仅作兜底 (见下)。
+     *
+     * 失败兜底: 若 send 异常返回 false (理论上仅当 ep 层异常),
+     * 保持 tx_busy=false 且 rest 不变, parser 将看到"空闲但未完成",
+     * 转入 usb_tx_continue 重试。 */
     tx_busy = false;
-    
-    // 所有内容发送完成且无需发送ZLP
-    if ((tx_rest == 0) && (require_send_zlp == false))
+
+    if (tx_rest > 0)
     {
+        uint32_t chunk_len = (tx_rest > 64) ? 64 : tx_rest;
+        if ((tx_rest - chunk_len) == 0 && chunk_len == 64)
+        {
+            require_send_zlp = true;
+        }
+
+        if (usb_cdc_send(&tx_buf[tx_total_len - tx_rest], chunk_len) == true)
+        {
+            tx_rest -= chunk_len;
+            tx_busy = true;
+        }
+    }
+    else if (require_send_zlp == true)
+    {
+        if (usb_cdc_send(NULL, 0) == true)
+        {
+            require_send_zlp = false;
+            tx_busy = true;
+        }
+    }
+    else
+    {
+        /* 全部内容 (含 ZLP) 发送完成 */
         tx_idle = true;
     }
 }
@@ -124,10 +156,8 @@ static bool usb_tx_continue(void)
         {
             require_send_zlp = false;
         }
-        else
-        {
-            tx_busy = false;
-        }
+        /* 发送失败仅瞬时 (XFRC 完成与 ISR 清 busy 的窗口): 保持状态,
+         * parser 下轮重试, 不放弃整条响应 */
         return true;
     }
 
@@ -142,12 +172,8 @@ static bool usb_tx_continue(void)
     {
         tx_rest -= chunk_len;
     }
-    else
-    {
-        tx_idle = true;
-        tx_busy = false;
-        return false;
-    }
+    /* 发送失败仅瞬时 (XFRC 完成与 ISR 清 busy 的窗口): 保持状态,
+     * parser 下轮重试, 不放弃整条响应 */
 
     return true;
 }
